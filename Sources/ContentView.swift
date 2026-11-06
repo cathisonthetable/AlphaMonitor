@@ -3,89 +3,43 @@ import UIKit
 
 @main
 struct AlphaMonitorApp: App {
+    @StateObject private var cam = CameraController()
+
     var body: some Scene {
-        WindowGroup { ContentView() }
+        WindowGroup {
+            RootView().environmentObject(cam)
+        }
     }
 }
 
-struct ContentView: View {
-    @StateObject private var cam = CameraController()
-    @State private var showLog = false
+struct RootView: View {
+    @EnvironmentObject var cam: CameraController
+    @State private var started = false
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(cam.connected ? Color.green : Color.orange)
-                    .frame(width: 10, height: 10)
-                Text(cam.status).font(.footnote).lineLimit(2)
-                Spacer()
-                if cam.isLive {
-                    Text(String(format: "%.1f fps", cam.fps))
-                        .font(.footnote.monospacedDigit())
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            ZStack {
-                Color.black
-                if let img = cam.liveImage {
-                    Image(uiImage: img).resizable().scaledToFit()
-                } else {
-                    Text("Nessuna immagine").foregroundColor(.gray)
-                }
-            }
-            .aspectRatio(3.0 / 2.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            HStack {
-                Text("Modo: \(cam.modeText)")
-                Spacer()
-                Text(cam.evText)
-            }
-            .font(.caption)
-            .foregroundColor(.secondary)
-
-            HStack(spacing: 8) {
-                ParamControl(title: "ISO", value: cam.isoText,
-                             minus: { cam.step(SonyProp.iso, up: false) },
-                             plus: { cam.step(SonyProp.iso, up: true) })
-                ParamControl(title: "Tempo", value: cam.shutterText,
-                             minus: { cam.step(SonyProp.shutterSpeed, up: false) },
-                             plus: { cam.step(SonyProp.shutterSpeed, up: true) })
-                ParamControl(title: "Diaframma", value: cam.apertureText,
-                             minus: { cam.step(SonyProp.fNumber, up: false) },
-                             plus: { cam.step(SonyProp.fNumber, up: true) })
-            }
-            .disabled(!cam.connected)
-
-            HStack(spacing: 24) {
-                Button(cam.isLive ? "Stop live" : "Live view") { cam.toggleLive() }
-                    .buttonStyle(.bordered)
-                    .disabled(!cam.connected)
-
-                Button { cam.shoot() } label: {
-                    Image(systemName: "camera.circle.fill").font(.system(size: 60))
-                }
-                .disabled(!cam.connected)
-
-                Button("Log") { showLog = true }
-                    .buttonStyle(.bordered)
-            }
-
-            if !cam.connected {
-                Button("Riprova connessione") { cam.start() }
-                    .font(.footnote)
-            }
-            Spacer(minLength: 0)
+        TabView {
+            CameraScreen()
+                .tabItem { Label("Camera", systemImage: "camera") }
+            PrompterScreen()
+                .tabItem { Label("Gobbo", systemImage: "text.alignleft") }
+            ShotListScreen()
+                .tabItem { Label("Scaletta", systemImage: "checklist") }
         }
-        .padding()
-        .sheet(isPresented: $showLog) { LogView(text: cam.logText) }
         .onAppear {
+            guard !started else { return }
+            started = true
             UIApplication.shared.isIdleTimerDisabled = true
             cam.start()
         }
     }
+}
+
+/// Rettangolo occupato da un'immagine "scaledToFit" dentro un contenitore.
+func fittedRect(_ image: CGSize, in box: CGSize) -> CGRect {
+    guard image.width > 0, image.height > 0 else { return .zero }
+    let scale = min(box.width / image.width, box.height / image.height)
+    let w = image.width * scale, h = image.height * scale
+    return CGRect(x: (box.width - w) / 2, y: (box.height - h) / 2, width: w, height: h)
 }
 
 struct ParamControl: View {

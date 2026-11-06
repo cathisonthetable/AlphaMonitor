@@ -21,6 +21,13 @@ enum SonyProp {
     static let halfPress: UInt16 = 0xD2C1
     static let fullPress: UInt16 = 0xD2C2
     static let movieRec: UInt16 = 0xD2C8
+    static let afAreaPosition: UInt16 = 0xD2DC   // x<<16 | y, area 640x480
+    static let batteryLevel: UInt16 = 0xD218
+}
+
+enum PTPStdOp {
+    static let getStorageIDs: UInt16 = 0x1004
+    static let getStorageInfo: UInt16 = 0x1005
 }
 
 enum PTPConst {

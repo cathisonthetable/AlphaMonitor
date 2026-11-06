@@ -17,6 +17,12 @@ final class CameraController: NSObject, ObservableObject {
     @Published var apertureText = "--"
     @Published var evText = "--"
     @Published var modeText = "--"
+    @Published var storageText = "--"
+    @Published var focusPoint: CGPoint?   // normalizzato 0...1
+    @Published var batteryText = "--"
+    @Published var isRecording = false
+    @Published var recStart: Date?
+    private var loggedStorage = false
 
     private let browser = ICDeviceBrowser()
     private var camera: ICCameraDevice?
@@ -25,6 +31,7 @@ final class CameraController: NSObject, ObservableObject {
     private var props: [UInt16: SonyProperty] = [:]
     private var didDumpProps = false
     private var refreshTimer: Timer?
+    private var timerTicks = 0
 
     // live view
     private var frameCount = 0
@@ -68,7 +75,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func start() {
         let info = Bundle.main.infoDictionary
-        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") – iOS \(UIDevice.current.systemVersion)")
+        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 4 – iOS \(UIDevice.current.systemVersion)")
         log("Chiedo i permessi…")
         browser.requestContentsAuthorization { contents in
             self.log("Permesso contenuti: \(contents.rawValue)")
@@ -137,14 +144,21 @@ final class CameraController: NSObject, ObservableObject {
                 self.status = "Handshake fallito – vedi Log"
             }
             self.refreshProps()
+            self.refreshStorage()
             self.startRefreshTimer()
+            if self.connected && !self.isLive { self.startLive() }
         }
     }
 
     private func startRefreshTimer() {
         refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self, self.camera != nil else { return }
+            // Durante la live view rileggo le impostazioni solo ogni 5 s
+            // (dopo un cambio da app vengono comunque rilette subito).
+            self.timerTicks += 1
+            if self.timerTicks % 10 == 0 { self.refreshStorage() }
+            if self.isLive && self.timerTicks % 5 != 0 { return }
             if !self.queue.contains(where: { $0.code == PTPOp.sonyGetAllExtDevicePropInfo }) {
                 self.refreshProps()
             }
@@ -161,8 +175,16 @@ final class CameraController: NSObject, ObservableObject {
             if !self.didDumpProps || perr != nil {
                 self.didDumpProps = true
                 self.log("Proprietà lette: \(p.count) (\(data.count) byte)" + (perr.map { " – errore parsing: \($0)" } ?? ""))
-                let codes = p.keys.sorted().map { String(format: "%04X", $0) }.joined(separator: " ")
-                self.log("Codici: \(codes)")
+                let codes = p.keys.sorted().map { code -> String in
+                    let v: String
+                    switch p[code]!.current {
+                    case .int(let i): v = String(format: "0x%llX", i)
+                    case .string(let s): v = "\"\(s)\""
+                    case .other: v = "?"
+                    }
+                    return String(format: "%04X", code) + "=" + v
+                }.joined(separator: " ")
+                self.log("Proprietà (codice=valore): \(codes)")
                 if p.isEmpty { self.log("Inizio dati: \(data.prefix(64).hex)") }
             }
             for (k, v) in p { self.props[k] = v }
@@ -171,7 +193,47 @@ final class CameraController: NSObject, ObservableObject {
             self.apertureText = SonyProps.formatAperture(self.props[SonyProp.fNumber]?.current.intValue)
             self.evText = SonyProps.formatEV(self.props[SonyProp.exposureComp]?.current.intValue)
             self.modeText = SonyProps.formatMode(self.props[SonyProp.exposureMode]?.current.intValue)
+            if let b = self.props[SonyProp.batteryLevel]?.current.intValue {
+                self.batteryText = (0...100).contains(b) ? "\(b)%" : String(format: "0x%llX", b)
+            }
         }
+    }
+
+    // MARK: - Registrazione video
+
+    func toggleRecord() {
+        let wasRecording = isRecording
+        log(wasRecording ? "Stop REC" : "Avvio REC")
+        let before = props.mapValues { $0.current.intValue }
+        buttonRC(SonyProp.movieRec, 2) { rc1 in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self.buttonRC(SonyProp.movieRec, 1) { _ in
+                    guard rc1 == PTPConst.responseOK else {
+                        self.log("REC rifiutato dalla fotocamera")
+                        return
+                    }
+                    self.isRecording = !wasRecording
+                    self.recStart = self.isRecording ? Date() : nil
+                    // Diagnostica: quali proprieta' cambiano con la registrazione?
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        self.refreshProps {
+                            let changed = self.props.keys.sorted().compactMap { code -> String? in
+                                let now = self.props[code]?.current.intValue
+                                guard let old = before[code], old != now else { return nil }
+                                return String(format: "%04X: 0x%llX→0x%llX", code, old ?? -1, now ?? -1)
+                            }
+                            self.log("Proprietà cambiate con REC: " + (changed.isEmpty ? "nessuna" : changed.joined(separator: ", ")))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func buttonRC(_ prop: UInt16, _ value: UInt16, then: @escaping (UInt16) -> Void) {
+        var d = Data()
+        d.appendLE(value)
+        send(PTPOp.sonySetControlDeviceB, [UInt32(prop)], data: d) { _, rc, _ in then(rc) }
     }
 
     /// Cambia ISO / tempo / diaframma di un passo. Prima prova il "passo" Sony
@@ -194,6 +256,73 @@ final class CameraController: NSObject, ObservableObject {
                 self.send(PTPOp.sonySetControlDeviceA, [UInt32(prop)],
                           data: SonyProps.encode(p.enumValues[next], type: p.dataType)) { _, _, _ in
                     self.refreshProps()
+                }
+            }
+        }
+    }
+
+    // MARK: - Spazio sulla scheda (PTP standard)
+
+    func refreshStorage() {
+        send(PTPStdOp.getStorageIDs, quiet: true) { data, rc, err in
+            guard err == nil, rc == PTPConst.responseOK else {
+                if !self.loggedStorage { self.log("GetStorageIDs non disponibile"); self.loggedStorage = true }
+                self.storageText = "n/d"
+                return
+            }
+            var r = ByteReader(data)
+            var ids: [UInt32] = []
+            if let n = try? r.u32() {
+                for _ in 0..<min(n, 8) { if let id = try? r.u32() { ids.append(id) } }
+            }
+            if !self.loggedStorage {
+                self.log("Storage ID: " + ids.map { String(format: "0x%08X", $0) }.joined(separator: ", "))
+            }
+            guard let id = ids.first(where: { $0 & 0xFFFF != 0 }) else {
+                self.storageText = "scheda non accessibile"
+                self.loggedStorage = true
+                return
+            }
+            self.send(PTPStdOp.getStorageInfo, [id], quiet: true) { d, rc2, err2 in
+                guard err2 == nil, rc2 == PTPConst.responseOK else { self.storageText = "n/d"; return }
+                var s = ByteReader(d)
+                do {
+                    _ = try s.u16(); _ = try s.u16(); _ = try s.u16()
+                    let maxCap = try s.u64()
+                    let free = try s.u64()
+                    let freeImages = try s.u32()
+                    let gb = { (b: UInt64) in Double(b) / 1_000_000_000 }
+                    var text = String(format: "%.1f GB liberi su %.0f", gb(free), gb(maxCap))
+                    if freeImages != 0xFFFF_FFFF { text += " · \(freeImages) foto" }
+                    self.storageText = text
+                    if !self.loggedStorage { self.log("Scheda: \(text)") }
+                } catch {
+                    if !self.loggedStorage { self.log("StorageInfo non leggibile: \(d.prefix(40).hex)") }
+                    self.storageText = "n/d"
+                }
+                self.loggedStorage = true
+            }
+        }
+    }
+
+    // MARK: - Tocco per mettere a fuoco
+
+    /// p normalizzato 0...1 sull'immagine live. La fotocamera usa una griglia 640x480.
+    /// Funziona con area di messa a fuoco "Spot flessibile" (o "Spot flessibile espanso").
+    func focus(at p: CGPoint) {
+        focusPoint = p
+        let x = UInt32(max(0, min(639, Int(p.x * 639))))
+        let y = UInt32(max(0, min(479, Int(p.y * 479))))
+        var d = Data()
+        d.appendLE((x << 16) | y)
+        log("Tocco AF: x=\(x) y=\(y)")
+        if props[SonyProp.afAreaPosition] == nil {
+            log("Nota: la fotocamera non elenca la proprietà 0xD2DC (posizione AF) – serve 'Spot flessibile'?")
+        }
+        send(PTPOp.sonySetControlDeviceA, [UInt32(SonyProp.afAreaPosition)], data: d) { _, _, _ in
+            self.button(SonyProp.halfPress, 2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    self.button(SonyProp.halfPress, 1)
                 }
             }
         }
@@ -239,25 +368,55 @@ final class CameraController: NSObject, ObservableObject {
         fps = 0
     }
 
+    private let decodeQueue = DispatchQueue(label: "liveview.decode", qos: .userInteractive)
+    private var decoding = false
+    private var lastTransfer = Date()
+    private var transferTotal: TimeInterval = 0
+
     private func fetchFrame() {
         guard isLive else { return }
+        let requested = Date()
         send(PTPOp.getObject, [PTPConst.liveViewHandle], quiet: true) { data, rc, err in
-            if err == nil, rc == PTPConst.responseOK,
-               let jpeg = PTPContainer.extractJPEG(data), let img = UIImage(data: jpeg) {
+            if err == nil, rc == PTPConst.responseOK, data.count > 100 {
                 self.liveErrors = 0
-                self.liveImage = img
-                self.frameCount += 1
-                let dt = Date().timeIntervalSince(self.fpsStart)
-                if dt >= 1 {
-                    self.fps = Double(self.frameCount) / dt
-                    self.frameCount = 0
-                    self.fpsStart = Date()
-                }
-                if !self.loggedBadFrame && self.liveImage != nil && self.frameCount == 1 {
-                    self.log("Primo fotogramma: \(Int(img.size.width))×\(Int(img.size.height)), \(data.count) byte")
-                    self.loggedBadFrame = true
-                }
+                self.transferTotal += Date().timeIntervalSince(requested)
+                // Chiedo subito il fotogramma successivo: la decodifica avviene in parallelo.
                 self.fetchFrame()
+                // Se il fotogramma precedente e' ancora in decodifica, salto questo.
+                guard !self.decoding else { return }
+                self.decoding = true
+                let defaults = UserDefaults.standard
+                let peaking = defaults.bool(forKey: "peaking")
+                let threshold = defaults.object(forKey: "peakingThreshold") as? Double ?? 0.25
+                let peakColor = Peaking.color(named: defaults.string(forKey: "peakingColor") ?? "rosso")
+                self.decodeQueue.async {
+                    let jpeg = PTPContainer.extractJPEG(data)
+                    var img: UIImage?
+                    if peaking, let jpeg {
+                        img = Peaking.apply(jpeg: jpeg, threshold: threshold, color: peakColor)
+                    }
+                    if img == nil {
+                        img = jpeg.flatMap { UIImage(data: $0) }?.preparingForDisplay()
+                    }
+                    let finalImage = img
+                    DispatchQueue.main.async {
+                        self.decoding = false
+                        guard let img = finalImage else { return }
+                        self.liveImage = img
+                        self.frameCount += 1
+                        let dt = Date().timeIntervalSince(self.fpsStart)
+                        if dt >= 2 {
+                            let fps = Double(self.frameCount) / dt
+                            let avgMs = self.transferTotal / Double(max(self.frameCount, 1)) * 1000
+                            self.fps = fps
+                            self.log(String(format: "Live: %.1f fps, trasferimento medio %.0f ms, %d byte, %d×%d",
+                                            fps, avgMs, data.count, Int(img.size.width), Int(img.size.height)))
+                            self.frameCount = 0
+                            self.transferTotal = 0
+                            self.fpsStart = Date()
+                        }
+                    }
+                }
             } else {
                 self.liveErrors += 1
                 if self.liveErrors <= 3 {
@@ -285,6 +444,8 @@ final class CameraController: NSObject, ObservableObject {
         queue.removeAll()
         busy = false
         props = [:]
+        isRecording = false
+        recStart = nil
         status = "Non connessa"
     }
 }
