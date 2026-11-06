@@ -75,7 +75,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func start() {
         let info = Bundle.main.infoDictionary
-        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 9 – iOS \(UIDevice.current.systemVersion)")
+        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 10 – iOS \(UIDevice.current.systemVersion)")
         log("Chiedo i permessi…")
         browser.requestContentsAuthorization { contents in
             self.log("Permesso contenuti: \(contents.rawValue)")
@@ -217,14 +217,7 @@ final class CameraController: NSObject, ObservableObject {
                     self.recStart = self.isRecording ? Date() : nil
                     // Diagnostica: quali proprieta' cambiano con la registrazione?
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        self.refreshProps {
-                            let changed = self.props.keys.sorted().compactMap { code -> String? in
-                                let now = self.props[code]?.current.intValue
-                                guard let old = before[code], old != now else { return nil }
-                                return String(format: "%04X: 0x%llX→0x%llX", code, old ?? -1, now ?? -1)
-                            }
-                            self.log("Proprietà cambiate con REC: " + (changed.isEmpty ? "nessuna" : changed.joined(separator: ", ")))
-                        }
+                        self.refreshProps { self.logChanges(since: before, label: "REC") }
                     }
                 }
             }
@@ -280,7 +273,7 @@ final class CameraController: NSObject, ObservableObject {
                 self.log("Storage ID: " + ids.map { String(format: "0x%08X", $0) }.joined(separator: ", "))
             }
             guard let id = ids.first(where: { $0 & 0xFFFF != 0 }) else {
-                self.storageText = "scheda non accessibile"
+                self.storageText = "—"
                 self.loggedStorage = true
                 return
             }
@@ -361,15 +354,30 @@ final class CameraController: NSObject, ObservableObject {
     /// Mezza pressione -> pressione completa -> rilascio.
     func shoot() {
         log("Scatto")
+        let before = props.mapValues { $0.current.intValue }
         button(SonyProp.halfPress, 2) {
             self.button(SonyProp.fullPress, 2) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                     self.button(SonyProp.fullPress, 1) {
-                        self.button(SonyProp.halfPress, 1)
+                        self.button(SonyProp.halfPress, 1) {
+                            // Diagnostica: cosa cambia dopo uno scatto? (es. foto rimanenti -1)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                self.refreshProps { self.logChanges(since: before, label: "scatto") }
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    private func logChanges(since before: [UInt16: Int64?], label: String) {
+        let changed = props.keys.sorted().compactMap { code -> String? in
+            let now = props[code]?.current.intValue
+            guard let old = before[code], old != now else { return nil }
+            return String(format: "%04X: %lld→%lld", code, old ?? -1, now ?? -1)
+        }
+        log("Proprietà cambiate dopo \(label): " + (changed.isEmpty ? "nessuna" : changed.joined(separator: ", ")))
     }
 
     // MARK: - Live view
