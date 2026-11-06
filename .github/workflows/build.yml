@@ -1,0 +1,50 @@
+name: Compila app iOS
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa XcodeGen
+        run: brew install xcodegen
+
+      - name: Genera progetto Xcode
+        run: xcodegen generate
+
+      - name: Compila (senza firma)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project AlphaMonitor.xcodeproj \
+            -scheme AlphaMonitor \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee build.log | grep -E "error:|warning: .*Swift|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release-iphoneos/AlphaMonitor.app
+
+      - name: Crea file .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/AlphaMonitor.app Payload/
+          zip -qr AlphaMonitor.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlphaMonitor-ipa
+          path: AlphaMonitor.ipa
+
+      - name: Salva log di compilazione
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
