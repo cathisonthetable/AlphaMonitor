@@ -23,7 +23,8 @@ enum SonyProp {
     static let movieRec: UInt16 = 0xD2C8
     static let afAreaPosition: UInt16 = 0xD2DC   // x<<16 | y, area 640x480 (modelli recenti)
     static let afAreaPositionAlt: UInt16 = 0xD230 // x<<16 | y, sulla a6400 vale 320,180 al centro (640x360)
-    static let focusFramePos: UInt16 = 0xD232
+    static let focusFramePos: UInt16 = 0xD232     // modificabile (getset 1), griglia 640x480
+    static let recordingState: UInt16 = 0xD21D    // 0 = fermo, 1 = in registrazione
     static let batteryLevel: UInt16 = 0xD218
 }
 

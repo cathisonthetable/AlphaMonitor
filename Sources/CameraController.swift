@@ -75,7 +75,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func start() {
         let info = Bundle.main.infoDictionary
-        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 10 – iOS \(UIDevice.current.systemVersion)")
+        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 11 – iOS \(UIDevice.current.systemVersion)")
         log("Chiedo i permessi…")
         browser.requestContentsAuthorization { contents in
             self.log("Permesso contenuti: \(contents.rawValue)")
@@ -194,6 +194,17 @@ final class CameraController: NSObject, ObservableObject {
             self.apertureText = SonyProps.formatAperture(self.props[SonyProp.fNumber]?.current.intValue)
             self.evText = SonyProps.formatEV(self.props[SonyProp.exposureComp]?.current.intValue)
             self.modeText = SonyProps.formatMode(self.props[SonyProp.exposureMode]?.current.intValue)
+            // Stato REC letto dalla fotocamera (funziona anche se premi REC sulla fotocamera).
+            // Subito dopo un comando dall'app aspetto qualche secondo, per non leggere un valore vecchio.
+            if let r = self.props[SonyProp.recordingState]?.current.intValue,
+               Date().timeIntervalSince(self.lastRecToggle) > 3 {
+                let rec = r == 1
+                if rec != self.isRecording {
+                    self.isRecording = rec
+                    self.recStart = rec ? (self.recStart ?? Date()) : nil
+                    self.log(rec ? "REC rilevato dalla fotocamera" : "Stop REC rilevato dalla fotocamera")
+                }
+            }
             if let b = self.props[SonyProp.batteryLevel]?.current.intValue {
                 self.batteryText = (0...100).contains(b) ? "\(b)%" : String(format: "0x%llX", b)
             }
@@ -202,7 +213,10 @@ final class CameraController: NSObject, ObservableObject {
 
     // MARK: - Registrazione video
 
+    private var lastRecToggle = Date.distantPast
+
     func toggleRecord() {
+        lastRecToggle = Date()
         let wasRecording = isRecording
         log(wasRecording ? "Stop REC" : "Avvio REC")
         let before = props.mapValues { $0.current.intValue }
@@ -327,10 +341,12 @@ final class CameraController: NSObject, ObservableObject {
             return d
         }
 
-        // Metodo 1: proprieta' D230 (vista sulla a6400), se presente
-        if props[SonyProp.afAreaPositionAlt] != nil {
-            send(PTPOp.sonySetControlDeviceA, [UInt32(SonyProp.afAreaPositionAlt)], data: packed(x, yLive))
+        // Metodo 1: proprieta' D232 (modificabile su a6100/a6400), griglia 640x480
+        if props[SonyProp.focusFramePos] != nil {
+            send(PTPOp.sonySetControlDeviceA, [UInt32(SonyProp.focusFramePos)], data: packed(x, y480))
         }
+        // (D230 e' di sola lettura: non la scrivo piu')
+        _ = yLive
         // Metodo 2: comando D2DC (modelli piu' recenti), griglia 640x480
         send(PTPOp.sonySetControlDeviceA, [UInt32(SonyProp.afAreaPosition)], data: packed(x, y480)) { _, _, _ in
             self.button(SonyProp.halfPress, 2) {
