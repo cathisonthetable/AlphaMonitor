@@ -6,6 +6,8 @@ struct LiveViewSurface: View {
     @EnvironmentObject var cam: CameraController
     var showFullscreenButton = false
     var onFullscreen: (() -> Void)? = nil
+    var onSwipeDown: (() -> Void)? = nil
+    var onSwipeUp: (() -> Void)? = nil
 
     @AppStorage("mirror") private var mirror = false
     @AppStorage("guide916") private var g916 = false
@@ -60,6 +62,18 @@ struct LiveViewSurface: View {
             .simultaneousGesture(magnifyGesture(size: size))
             .overlay(alignment: .topLeading) {
                 RecTimer().padding(8)
+            }
+            .overlay {
+                if cam.connected && !cam.isLive {
+                    Button { cam.startLive() } label: {
+                        Label("Riattiva live view", systemImage: "play.fill")
+                            .font(.footnote.bold())
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(Color.black.opacity(0.65))
+                            .clipShape(Capsule())
+                    }
+                    .foregroundColor(.white)
+                }
             }
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 8) {
@@ -128,7 +142,15 @@ struct LiveViewSurface: View {
                 pan = clampPan(CGSize(width: lastPan.width + value.translation.width,
                                       height: lastPan.height + value.translation.height), size: size)
             }
-            .onEnded { _ in lastPan = pan }
+            .onEnded { value in
+                lastPan = pan
+                // Swipe verticale (solo senza zoom): giu' = chiudi, su = apri schermo intero
+                guard zoom <= 1.01 else { return }
+                let dx = value.translation.width, dy = value.translation.height
+                if abs(dy) > 80 && abs(dy) > abs(dx) * 1.5 {
+                    if dy > 0 { onSwipeDown?() } else { onSwipeUp?() }
+                }
+            }
     }
 
     private func clampPan(_ p: CGSize, size: CGSize) -> CGSize {

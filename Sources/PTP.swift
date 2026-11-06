@@ -21,7 +21,9 @@ enum SonyProp {
     static let halfPress: UInt16 = 0xD2C1
     static let fullPress: UInt16 = 0xD2C2
     static let movieRec: UInt16 = 0xD2C8
-    static let afAreaPosition: UInt16 = 0xD2DC   // x<<16 | y, area 640x480
+    static let afAreaPosition: UInt16 = 0xD2DC   // x<<16 | y, area 640x480 (modelli recenti)
+    static let afAreaPositionAlt: UInt16 = 0xD230 // x<<16 | y, sulla a6400 vale 320,180 al centro (640x360)
+    static let focusFramePos: UInt16 = 0xD232
     static let batteryLevel: UInt16 = 0xD218
 }
 
@@ -33,6 +35,7 @@ enum PTPStdOp {
 enum PTPConst {
     static let liveViewHandle: UInt32 = 0xFFFF_C002
     static let responseOK: UInt16 = 0x2001
+    static let notReady: UInt16 = 0x200F   // live view: fotogramma non ancora pronto
 }
 
 // MARK: - Contenitori PTP
@@ -142,6 +145,7 @@ enum PropValue {
 struct SonyProperty {
     let code: UInt16
     let dataType: UInt16
+    let getSet: UInt8
     let enabled: UInt8
     let current: PropValue
     let enumValues: [Int64]
@@ -183,7 +187,7 @@ enum SonyProps {
             for _ in 0..<min(count, 2000) {
                 let code = try r.u16()
                 let type = try r.u16()
-                _ = try r.u8()               // get/set
+                let getSet = try r.u8()      // get/set
                 let enabled = try r.u8()     // campo extra Sony
                 _ = try readValue(&r, type: type) // valore di fabbrica
                 let current = try readValue(&r, type: type)
@@ -203,7 +207,7 @@ enum SonyProps {
                 default:
                     throw ParseError.badForm(form, code)
                 }
-                out[code] = SonyProperty(code: code, dataType: type, enabled: enabled,
+                out[code] = SonyProperty(code: code, dataType: type, getSet: getSet, enabled: enabled,
                                          current: current, enumValues: enums)
             }
             return (out, nil)

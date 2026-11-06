@@ -10,6 +10,7 @@ struct PrompterScreen: View {
     @AppStorage("prompterFont") private var fontSize = 40.0
     @AppStorage("prompterMirror") private var mirrorText = false
     @State private var playing = false
+    @FocusState private var editing: Bool
 
     var body: some View {
         NavigationStack {
@@ -17,6 +18,8 @@ struct PrompterScreen: View {
                 TextEditor(text: $text)
                     .font(.body)
                     .frame(minHeight: 200)
+                    .focused($editing)
+                    .scrollDismissesKeyboard(.interactively)
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
 
                 VStack(spacing: 8) {
@@ -31,17 +34,39 @@ struct PrompterScreen: View {
                         Text("\(Int(fontSize))").monospacedDigit().frame(width: 36)
                     }
                     Toggle("Testo specchiato (per vetro da teleprompter)", isOn: $mirrorText)
+                    Text("In lettura: tocca = pausa · trascina su/giù = scorri · swipe ←/→ = velocità · swipe giù dal bordo alto = chiudi")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.footnote)
 
-                Button { playing = true } label: {
+                Button { editing = false; playing = true } label: {
                     Label("Avvia gobbo", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
             }
             .padding()
+            // Swipe verso il basso = chiudi la tastiera
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 25).onEnded { v in
+                    let dx = v.translation.width, dy = v.translation.height
+                    if dy > 50 && dy > abs(dx) { editing = false }
+                }
+            )
             .navigationTitle("Gobbo")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if editing {
+                        Button("Fine") { editing = false }.bold()
+                    }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Fine") { editing = false }
+                }
+            }
             .fullScreenCover(isPresented: $playing) {
                 PrompterPlayer(text: text, speed: $speed, fontSize: fontSize, mirrorText: mirrorText)
                     .environmentObject(cam)
@@ -68,6 +93,8 @@ struct PrompterPlayer: View {
     @State private var offset: CGFloat = 0
     @State private var running = false
     @State private var textHeight: CGFloat = 0
+    @State private var dragStartOffset: CGFloat?
+    @State private var dragFromTop = false
     private let tick = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -99,6 +126,36 @@ struct PrompterPlayer: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { running.toggle() }
+            .gesture(
+                DragGesture(minimumDistance: 15)
+                    .onChanged { v in
+                        if dragStartOffset == nil {
+                            dragStartOffset = offset
+                            dragFromTop = v.startLocation.y < geo.size.height * 0.12
+                        }
+                        // Trascina su/giu' = scorri il testo a mano (mette in pausa)
+                        guard !dragFromTop, abs(v.translation.height) > abs(v.translation.width) else { return }
+                        running = false
+                        offset = min(textHeight, max(0, (dragStartOffset ?? 0) - v.translation.height))
+                    }
+                    .onEnded { v in
+                        defer { dragStartOffset = nil }
+                        let dx = v.translation.width, dy = v.translation.height
+                        // Swipe giu' partendo dal bordo alto = chiudi
+                        if dragFromTop && dy > 80 { dismiss(); return }
+                        // Swipe destra / sinistra = piu' veloce / piu' lento
+                        if abs(dx) > 80 && abs(dx) > abs(dy) * 1.5 {
+                            speed = dx > 0 ? min(150, speed + 10) : max(10, speed - 10)
+                        }
+                    }
+            )
+            .overlay(alignment: .top) {
+                Capsule()
+                    .fill(Color.white.opacity(0.35))
+                    .frame(width: 44, height: 5)
+                    .padding(.top, 12)
+                    .allowsHitTesting(false)
+            }
             .onPreferenceChange(TextHeightKey.self) { textHeight = $0 }
             .onReceive(tick) { _ in
                 guard running else { return }

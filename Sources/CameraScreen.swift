@@ -12,7 +12,9 @@ struct CameraScreen: View {
         VStack(spacing: 10) {
             StatusRow()
 
-            LiveViewSurface(showFullscreenButton: true, onFullscreen: { fullscreen = true })
+            LiveViewSurface(showFullscreenButton: true,
+                            onFullscreen: { fullscreen = true },
+                            onSwipeUp: { fullscreen = true })
                 .aspectRatio(3.0 / 2.0, contentMode: .fit)
 
             HStack {
@@ -150,19 +152,28 @@ struct FullscreenCameraView: View {
                 // Orizzontale: info a sinistra, comandi a destra
                 HStack(spacing: 6) {
                     InfoColumn().frame(width: 96)
-                    LiveViewSurface()
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(swipeDownToClose)
+                    LiveViewSurface(onSwipeDown: { dismiss() })
                     ControlColumn(showSettings: $showSettings, close: { dismiss() })
                         .frame(width: 80)
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(swipeDownToClose)
                 }
                 .padding(.vertical, 4)
             } else {
                 // Verticale: info sopra, comandi sotto
                 VStack(spacing: 8) {
                     InfoBar()
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(swipeDownToClose)
                     Spacer(minLength: 0)
-                    LiveViewSurface().aspectRatio(3.0 / 2.0, contentMode: .fit)
+                    LiveViewSurface(onSwipeDown: { dismiss() })
+                        .aspectRatio(3.0 / 2.0, contentMode: .fit)
                     Spacer(minLength: 0)
                     ControlBar(showSettings: $showSettings, close: { dismiss() })
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(swipeDownToClose)
                 }
                 .padding(8)
             }
@@ -173,6 +184,27 @@ struct FullscreenCameraView: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $showSettings) { SettingsView() }
+    }
+
+    /// Swipe verso il basso sulle colonne / barre = chiudi lo schermo intero
+    private var swipeDownToClose: some Gesture {
+        DragGesture(minimumDistance: 30).onEnded { v in
+            let dx = v.translation.width, dy = v.translation.height
+            if dy > 80 && dy > abs(dx) * 1.5 { dismiss() }
+        }
+    }
+}
+
+/// Pulsante avvia / ferma live view (schermo intero)
+struct LiveToggleButton: View {
+    @EnvironmentObject var cam: CameraController
+
+    var body: some View {
+        Button { cam.toggleLive() } label: {
+            Image(systemName: cam.isLive ? "pause.circle" : "play.circle.fill")
+                .foregroundColor(cam.isLive ? .white : .green)
+        }
+        .disabled(!cam.connected)
     }
 }
 
@@ -266,6 +298,7 @@ struct ControlColumn: View {
                 Image(systemName: "scope").foregroundColor(peaking ? .yellow : .white)
             }
             Button { showSettings = true } label: { Image(systemName: "gearshape") }
+            LiveToggleButton()
             Spacer(minLength: 0)
             RecButton(size: 52)
             ShutterButton(size: 52)
@@ -294,6 +327,7 @@ struct ControlBar: View {
                 Image(systemName: "scope").foregroundColor(peaking ? .yellow : .white)
             }
             Button { showSettings = true } label: { Image(systemName: "gearshape") }
+            LiveToggleButton()
             Spacer()
             RecButton(size: 56)
             ShutterButton(size: 56)

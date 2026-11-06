@@ -75,7 +75,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func start() {
         let info = Bundle.main.infoDictionary
-        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 5 – iOS \(UIDevice.current.systemVersion)")
+        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 9 – iOS \(UIDevice.current.systemVersion)")
         log("Chiedo i permessi…")
         browser.requestContentsAuthorization { contents in
             self.log("Permesso contenuti: \(contents.rawValue)")
@@ -108,7 +108,8 @@ final class CameraController: NSObject, ObservableObject {
         cam.requestSendPTPCommand(cmd, outData: p.data) { data, response, error in
             DispatchQueue.main.async {
                 let rc = PTPContainer.responseCode(response)
-                if !p.quiet || error != nil || rc != PTPConst.responseOK {
+                let silentNotReady = p.quiet && error == nil && rc == PTPConst.notReady
+                if !silentNotReady && (!p.quiet || error != nil || rc != PTPConst.responseOK) {
                     let ps = p.params.map { String(format: "0x%X", $0) }.joined(separator: ",")
                     var line = String(format: "op 0x%04X", p.code) + " [\(ps)]"
                     if let out = p.data { line += " out=\(out.hex)" }
@@ -311,18 +312,41 @@ final class CameraController: NSObject, ObservableObject {
     /// Funziona con area di messa a fuoco "Spot flessibile" (o "Spot flessibile espanso").
     func focus(at p: CGPoint) {
         focusPoint = p
-        let x = UInt32(max(0, min(639, Int(p.x * 639))))
-        let y = UInt32(max(0, min(479, Int(p.y * 479))))
-        var d = Data()
-        d.appendLE((x << 16) | y)
-        log("Tocco AF: x=\(x) y=\(y)")
-        if props[SonyProp.afAreaPosition] == nil {
-            log("Nota: la fotocamera non elenca la proprietà 0xD2DC (posizione AF) – serve 'Spot flessibile'?")
+        let px = max(0, min(1, Double(p.x)))
+        let py = max(0, min(1, Double(p.y)))
+        // Griglia 640 x (640 * altezza/larghezza della live view): 640x360 per il 16:9
+        let aspect = liveImage.map { Double($0.size.height / max($0.size.width, 1)) } ?? 0.5625
+        let gridH = Int((640 * aspect).rounded())
+        let x = UInt32((px * 639).rounded())
+        let yLive = UInt32((py * Double(gridH - 1)).rounded())
+        let y480 = UInt32((py * 479).rounded())
+
+        let fmt = { (code: UInt16) -> String in
+            guard let pr = self.props[code], let v = pr.current.intValue else { return String(format: "%04X assente", code) }
+            return String(format: "%04X=%ld,%ld (getset %ld)", code,
+                          Int((v >> 16) & 0xFFFF), Int(v & 0xFFFF), Int(pr.getSet))
         }
-        send(PTPOp.sonySetControlDeviceA, [UInt32(SonyProp.afAreaPosition)], data: d) { _, _, _ in
+        log("Tocco AF → x=\(x) y=\(yLive) (griglia 640×\(gridH)) · prima: \(fmt(SonyProp.afAreaPositionAlt)), \(fmt(SonyProp.focusFramePos))")
+
+        func packed(_ x: UInt32, _ y: UInt32) -> Data {
+            var d = Data()
+            d.appendLE((x << 16) | y)
+            return d
+        }
+
+        // Metodo 1: proprieta' D230 (vista sulla a6400), se presente
+        if props[SonyProp.afAreaPositionAlt] != nil {
+            send(PTPOp.sonySetControlDeviceA, [UInt32(SonyProp.afAreaPositionAlt)], data: packed(x, yLive))
+        }
+        // Metodo 2: comando D2DC (modelli piu' recenti), griglia 640x480
+        send(PTPOp.sonySetControlDeviceA, [UInt32(SonyProp.afAreaPosition)], data: packed(x, y480)) { _, _, _ in
             self.button(SonyProp.halfPress, 2) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    self.button(SonyProp.halfPress, 1)
+                    self.button(SonyProp.halfPress, 1) {
+                        self.refreshProps {
+                            self.log("Dopo AF: \(fmt(SonyProp.afAreaPositionAlt)), \(fmt(SonyProp.focusFramePos))")
+                        }
+                    }
                 }
             }
         }
@@ -417,6 +441,9 @@ final class CameraController: NSObject, ObservableObject {
                         }
                     }
                 }
+            } else if err == nil && rc == PTPConst.notReady {
+                // "Fotogramma non ancora pronto": normale, riprovo quasi subito.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { self.fetchFrame() }
             } else {
                 self.liveErrors += 1
                 if self.liveErrors <= 3 {
