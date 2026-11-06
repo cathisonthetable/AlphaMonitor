@@ -22,7 +22,11 @@ final class CameraController: NSObject, ObservableObject {
     @Published var batteryText = "--"
     @Published var isRecording = false
     @Published var recStart: Date?
+    @Published var toast: String?
+    var showStorage: Bool { storageText.contains("GB") }
     private var loggedStorage = false
+    private var downloading = false
+    private var downloadFailures = 0
 
     private let browser = ICDeviceBrowser()
     private var camera: ICCameraDevice?
@@ -75,7 +79,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func start() {
         let info = Bundle.main.infoDictionary
-        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 11 – iOS \(UIDevice.current.systemVersion)")
+        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 12 – iOS \(UIDevice.current.systemVersion)")
         log("Chiedo i permessi…")
         browser.requestContentsAuthorization { contents in
             self.log("Permesso contenuti: \(contents.rawValue)")
@@ -205,8 +209,66 @@ final class CameraController: NSObject, ObservableObject {
                     self.log(rec ? "REC rilevato dalla fotocamera" : "Stop REC rilevato dalla fotocamera")
                 }
             }
+            // Foto scattate in attesa di essere scaricate (PC Remote)
+            if let pend = self.props[SonyProp.pendingObjects]?.current.intValue,
+               pend & 0x8000 != 0, pend & 0x7FFF > 0 {
+                self.downloadPendingPhoto()
+            }
             if let b = self.props[SonyProp.batteryLevel]?.current.intValue {
                 self.batteryText = (0...100).contains(b) ? "\(b)%" : String(format: "0x%llX", b)
+            }
+        }
+    }
+
+    // MARK: - Foto sull'iPhone dopo lo scatto
+
+    func showToast(_ text: String) {
+        toast = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            if self.toast == text { self.toast = nil }
+        }
+    }
+
+    /// Scarica la foto in attesa (handle 0xFFFFC001) e la salva nel Rullino.
+    private func downloadPendingPhoto() {
+        guard !downloading, downloadFailures < 3 else { return }
+        let enabled = UserDefaults.standard.object(forKey: "autoSavePhotos") as? Bool ?? true
+        guard enabled else { return }
+        downloading = true
+        send(PTPStdOp.getObjectInfo, [PTPConst.capturedImageHandle], quiet: true) { info, rc, err in
+            guard err == nil, rc == PTPConst.responseOK else {
+                self.downloading = false
+                self.downloadFailures += 1
+                self.log(String(format: "Info foto non disponibile (risp 0x%04X)", rc))
+                return
+            }
+            let name = PTPConst.objectFilename(info) ?? "Sony.JPG"
+            let started = Date()
+            self.showToast("⬇︎ Scarico \(name)…")
+            self.send(PTPOp.getObject, [PTPConst.capturedImageHandle], quiet: true) { data, rc2, err2 in
+                guard err2 == nil, rc2 == PTPConst.responseOK, !data.isEmpty else {
+                    self.downloading = false
+                    self.downloadFailures += 1
+                    self.log(String(format: "Download foto fallito (risp 0x%04X)", rc2))
+                    return
+                }
+                self.log(String(format: "Scaricata %@: %.1f MB in %.1f s", name,
+                                Double(data.count) / 1_000_000, Date().timeIntervalSince(started)))
+                PhotoSaver.save(data, filename: name) { ok, msg in
+                    DispatchQueue.main.async {
+                        self.downloading = false
+                        if ok {
+                            self.downloadFailures = 0
+                            self.log("Salvata nel Rullino: \(name)")
+                            self.showToast("📷 \(name) salvata in Foto")
+                        } else {
+                            self.downloadFailures += 1
+                            self.log("Salvataggio di \(name) non riuscito: \(msg)")
+                            self.showToast("Salvataggio non riuscito")
+                        }
+                        self.refreshProps()   // se ci sono altre foto in attesa, continua
+                    }
+                }
             }
         }
     }

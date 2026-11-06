@@ -63,6 +63,18 @@ struct LiveViewSurface: View {
             .overlay(alignment: .topLeading) {
                 RecTimer().padding(8)
             }
+            .overlay(alignment: .bottom) {
+                if let t = cam.toast {
+                    Text(t)
+                        .font(.caption.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Color.black.opacity(0.7))
+                        .clipShape(Capsule())
+                        .padding(.bottom, 10)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay {
                 if cam.connected && !cam.isLive {
                     Button { cam.startLive() } label: {

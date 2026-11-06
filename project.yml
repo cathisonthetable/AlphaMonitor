@@ -23,6 +23,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSCameraUsageDescription: "Serve per controllare la fotocamera Sony collegata via USB."
         NSPhotoLibraryUsageDescription: "Serve per accedere alla fotocamera Sony collegata via USB."
+        NSPhotoLibraryAddUsageDescription: "Serve per salvare in Foto gli scatti della fotocamera Sony."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.alphamonitor.probe

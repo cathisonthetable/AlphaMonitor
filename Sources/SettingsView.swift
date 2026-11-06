@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage("peakingColor") private var peakingColor = "rosso"
     @AppStorage("peakingThreshold") private var peakingThreshold = 0.25
     @AppStorage("mirror") private var mirror = false
+    @AppStorage("autoSavePhotos") private var autoSavePhotos = true
 
     private let colors = ["rosso", "giallo", "azzurro", "bianco"]
 
@@ -52,6 +53,14 @@ struct SettingsView: View {
                     Text("Focus peaking")
                 } footer: {
                     Text("Colora i contorni a fuoco. Utile soprattutto con la messa a fuoco manuale.")
+                }
+
+                Section {
+                    Toggle("Salva sull'iPhone dopo ogni scatto", isOn: $autoSavePhotos)
+                } header: {
+                    Text("Foto")
+                } footer: {
+                    Text("Ogni foto scattata con la fotocamera collegata viene copiata nell'app Foto. Solo foto: i video restano sulla scheda.")
                 }
 
                 Section {

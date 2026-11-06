@@ -25,12 +25,29 @@ enum SonyProp {
     static let afAreaPositionAlt: UInt16 = 0xD230 // x<<16 | y, sulla a6400 vale 320,180 al centro (640x360)
     static let focusFramePos: UInt16 = 0xD232     // modificabile (getset 1), griglia 640x480
     static let recordingState: UInt16 = 0xD21D    // 0 = fermo, 1 = in registrazione
+    static let pendingObjects: UInt16 = 0xD215    // 0x8000 | n = n foto pronte da scaricare
     static let batteryLevel: UInt16 = 0xD218
 }
 
 enum PTPStdOp {
     static let getStorageIDs: UInt16 = 0x1004
     static let getStorageInfo: UInt16 = 0x1005
+    static let getObjectInfo: UInt16 = 0x1008
+}
+
+extension PTPConst {
+    /// Handle Sony della foto appena scattata, in attesa di essere scaricata
+    static let capturedImageHandle: UInt32 = 0xFFFF_C001
+
+    /// Nome file dal dataset ObjectInfo (il nome inizia al byte 52)
+    static func objectFilename(_ info: Data) -> String? {
+        var r = ByteReader(info)
+        do {
+            try r.skip(52)
+            if case .string(let s) = try SonyProps.readValue(&r, type: 0xFFFF), !s.isEmpty { return s }
+        } catch {}
+        return nil
+    }
 }
 
 enum PTPConst {

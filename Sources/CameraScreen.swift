@@ -20,8 +20,10 @@ struct CameraScreen: View {
             HStack {
                 Text("Modo: \(cam.modeText)")
                 Spacer()
-                Label(cam.storageText, systemImage: "sdcard")
-                Spacer()
+                if cam.showStorage {
+                    Label(cam.storageText, systemImage: "sdcard")
+                    Spacer()
+                }
                 Text(cam.evText)
             }
             .font(.caption)
@@ -245,9 +247,11 @@ struct InfoColumn: View {
             Text("Modo \(cam.modeText)").font(.system(size: 12))
             Spacer(minLength: 0)
             Label(cam.batteryText, systemImage: "battery.75").font(.system(size: 11))
-            Label(cam.storageText, systemImage: "sdcard")
-                .font(.system(size: 10))
-                .lineLimit(3)
+            if cam.showStorage {
+                Label(cam.storageText, systemImage: "sdcard")
+                    .font(.system(size: 10))
+                    .lineLimit(3)
+            }
             if cam.isLive {
                 Text(String(format: "%.0f fps", cam.fps)).font(.system(size: 10)).foregroundColor(.gray)
             }
@@ -272,7 +276,9 @@ struct InfoBar: View {
                 Text("\(cam.modeText)  \(cam.evText)")
                 Spacer()
                 Label(cam.batteryText, systemImage: "battery.75")
-                Label(cam.storageText, systemImage: "sdcard").lineLimit(1)
+                if cam.showStorage {
+                    Label(cam.storageText, systemImage: "sdcard").lineLimit(1)
+                }
             }
             .font(.system(size: 11))
             .foregroundColor(.gray)
