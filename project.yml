@@ -1,0 +1,32 @@
+name: AlphaMonitor
+options:
+  bundleIdPrefix: app.alphamonitor
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  AlphaMonitor:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleDisplayName: Alpha Monitor
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: "Serve per controllare la fotocamera Sony collegata via USB."
+        NSPhotoLibraryUsageDescription: "Serve per accedere alla fotocamera Sony collegata via USB."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.alphamonitor.probe
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
