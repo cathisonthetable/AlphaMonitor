@@ -180,9 +180,9 @@ struct FramingOverlay: View {
                 }
                 .stroke(Color.white.opacity(0.85), lineWidth: 1.5)
             }
-            if g916 { guide(9.0 / 16.0, "9:16", .yellow) }
-            if g45 { guide(4.0 / 5.0, "4:5", .cyan) }
-            if g11 { guide(1.0, "1:1", .orange) }
+            if g916 { guide(9.0 / 16.0, "9:16 · 1080×1920", .yellow) }
+            if g45 { guide(4.0 / 5.0, "4:5 · 1080×1350", .cyan) }
+            if g11 { guide(1.0, "1:1 · 1080×1080", .orange) }
         }
         .allowsHitTesting(false)
     }
@@ -197,7 +197,10 @@ struct FramingOverlay: View {
         Text(label)
             .font(.caption2.bold())
             .foregroundColor(color)
-            .position(x: r.minX + 18, y: r.minY + 10)
+            .fixedSize()
+            .padding(.leading, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .offset(x: r.minX, y: r.minY + 4)
     }
 }
 

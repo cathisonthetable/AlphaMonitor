@@ -121,9 +121,9 @@ struct GuidesMenu: View {
 
     var body: some View {
         Menu {
-            Toggle("9:16", isOn: $g916)
-            Toggle("4:5", isOn: $g45)
-            Toggle("1:1", isOn: $g11)
+            Toggle("9:16 (1080×1920)", isOn: $g916)
+            Toggle("4:5 (1080×1350)", isOn: $g45)
+            Toggle("1:1 (1080×1080)", isOn: $g11)
             Divider()
             Toggle("Griglia dei terzi", isOn: $thirds)
             Toggle("Centro", isOn: $center)

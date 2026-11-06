@@ -19,9 +19,9 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("9:16 – TikTok, Reels, Shorts", isOn: $g916)
-                    Toggle("4:5 – post Instagram", isOn: $g45)
-                    Toggle("1:1 – quadrato", isOn: $g11)
+                    Toggle("9:16 (1080×1920) – TikTok, Reels, Shorts", isOn: $g916)
+                    Toggle("4:5 (1080×1350) – post Instagram", isOn: $g45)
+                    Toggle("1:1 (1080×1080) – quadrato", isOn: $g11)
                 } header: {
                     Text("Guide di formato")
                 }

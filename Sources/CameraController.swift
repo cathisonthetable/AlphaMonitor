@@ -75,7 +75,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func start() {
         let info = Bundle.main.infoDictionary
-        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 4 – iOS \(UIDevice.current.systemVersion)")
+        log("Alpha Monitor \(info?["CFBundleShortVersionString"] ?? "?") build 5 – iOS \(UIDevice.current.systemVersion)")
         log("Chiedo i permessi…")
         browser.requestContentsAuthorization { contents in
             self.log("Permesso contenuti: \(contents.rawValue)")
