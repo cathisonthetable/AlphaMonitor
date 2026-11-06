@@ -13,8 +13,8 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Alpha Monitor
-        CFBundleShortVersionString: "0.1"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "0.5"
+        CFBundleVersion: "5"
         UILaunchScreen: {}
         UIRequiresFullScreen: false
         UISupportedInterfaceOrientations:
@@ -28,5 +28,5 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.alphamonitor.probe
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
-        MARKETING_VERSION: "0.1"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.5"
+        CURRENT_PROJECT_VERSION: "5"
